@@ -30,10 +30,10 @@ for s = 1 : K
 
     % derive the least square solution
     A_hat(:, s) = A(:, SetEst(s));
-    xtilde_GRF  = pinv(A_hat) * y;
+    xtilde  = pinv(A_hat) * y;
 
     % sparse reconstruction
-    xhat(SetEst) = xtilde_GRF;
+    xhat(SetEst) = xtilde;
 
 end
 
