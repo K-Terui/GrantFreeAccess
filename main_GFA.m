@@ -15,12 +15,11 @@ flag_MC  = 0; %compare the mutual coherence of each frame
 
 %% frame
 frame_GRF = 1; %gaussian random frame
-frame_DFT = 0; %partial DFT frame
+frame_DFT = 1; %partial DFT frame
 frame_QCS = 0; %QCSIDCO frame
 
 %% plot
-plot_FA   = 1; %plot the performance about false alarm vs. SNR
-plot_MD   = 1; %plot the performance about miss detection vs. SNR
+plot_MDFA = 1; %plot the performance about miss detection and false alarm vs. SNR
 plot_NMSE = 1; %plot the performance about channel estimation error (NMSE) vs. SNR
 
 %% setup
@@ -61,6 +60,8 @@ if (flag_SMV)
     nmseGRFreals = zeros(length(SNR), reals);
     nmseDFTreals = zeros(length(SNR), reals);
     nmseQCSreals = zeros(length(SNR), reals);
+    % SNR
+    SNRreals = zeros(length(SNR), reals);
 
     Nbs = J.SMV;
 
@@ -71,74 +72,72 @@ if (flag_SMV)
             SetActiveUEs = find(S_t); %indeces of active UEs
 
             % channel generation
-%             h = crand(N, Nbs) * sqrt(beta) .* repmat(S_t, 1, Nbs);
             h = sqrt(0.5) * (randn(N, Nbs) + 1j * randn(N, Nbs)) .* repmat(S_t, 1, Nbs);
             
             % noise generation
-%             n = crandn(M, Nbs) * sqrt(Noivar(sn));
             n = sqrt(0.50 * Noivar(sn)) * (randn(M, Nbs) + 1j * randn(M, Nbs));
+            % SNR
+            SNRreals(sn, iter) = norm(h, 'fro')^2 / norm(n, 'fro')^2 / K; %各アクティブユーザごとのSNRに対する平均値
 
             % AUD and CE by each frame
+            % gaussian random frame
             if (frame_GRF)
                 % generate the frame
-%                 A_GRF = crandn(M, N);                %gaussian random frame
                 A_GRF = sqrt(0.5) * (randn(M, N) + 1j * randn(M, N));
-                A_GRF = A_GRF./vecnorm(A_GRF, 2, 1); %normalize
+                A_GRF = A_GRF./vecnorm(A_GRF, 2, 1); %normalization
+                
                 % received signal
-%                 y = A_GRF * h + crandn(M, Nbs) * sqrt(Noivar(sn));
                 y = A_GRF * h + n;
 
                 % OMP
-                % initialize
-                xhat_GRF   = zeros(size(h));  %estimation value (sparse)   
-                r          = zeros(size(y));  %residual
-                SetEst_GRF = int16.empty;     %index set of estimated active UEs
-                A          = A_GRF;           %initial frame update
-                A_hat      = double.empty;    %selected support
-
-                % main loop
-                for s = 1 : K
-                    % residual update
-                    r = y - A * xhat_GRF;
-
-                    % select the maximum correlated index
-                    [~, p] = max(abs(A' * r));
-                    
-                    % add index to the index set
-                    SetEst_GRF(s) = p;
-                    
-
-                    % derive the least square solution
-                    A_hat(:, s) = A(:, SetEst_GRF(s));
-%                     xtilde_GRF  = inv(A_hat' * A_hat) * A_hat' * y;
-                    xtilde_GRF  = pinv(A_hat) * y;
-
-                    % sparse reconstruction
-                    xhat_GRF(SetEst_GRF) = xtilde_GRF;
-
-
-                end
-%                 [xhat_GRF, SetEst_GRF] = OrthogonalMatchingPursuit(y, A_GRF, K);
-
+                [xhat_GRF, SetEst_GRF] = OMP_nzknown(y, A_GRF, K);
+                
+                % MD, FA, AER
                 [pmdGRFreals(sn, iter), pfaGRFreals(sn, iter), ~] = Compute_MDandFA(SetActiveUEs, SetEst_GRF, N, K);
 
                 % MMSE
-                Aest = A_GRF(:, SetEst_GRF);
-                xmmseGRF = Aest' * inv(Aest * Aest' + Noivar(sn) * eye(M)) * y;
-                xhat_GRF(SetEst_GRF) = xmmseGRF;
+                nmseGRFreals(sn, iter) = ChannelEstimation_MMSE(A_GRF, y, h, xhat_GRF, SetEst_GRF, Noivar(sn));
 
-                % miss detection probability
-%                 pmdGRFreals(sn, reals) = length(setdiff(SetActiveUEs, SetEst_GRF))/K;
-%                 pmdGRFreals(sn, reals) = MD;
-%                 % false alarm probability
-%                 pfaGRFreals(sn, reals) = length(intersect(complement(SetActiveUEs, N), SetEst_GRF)) / (N-K);
-                
-                % NMSE
-                nmseGRFreals(sn, iter) = norm(h - xhat_GRF, 'fro')^2 / norm(h, 'fro')^2;
-
-                % SNR
-                SNR_iter(sn, iter) = norm(h, 'fro')^2 / norm(n, 'fro')^2 / K;%各アクティブユーザごとのSNRに対する平均値
             end
+            
+            % partial DFT frame
+            if (frame_DFT)
+                % generate the frame
+                dftmat = dftmtx(N) / sqrt(N);
+                A_DFT = dftmat(randperm(N, M), :);
+                A_DFT = A_DFT./vecnorm(A_DFT, 2, 1); %normalization
+
+                % received signal
+                y = A_DFT * h + n;
+
+                % OMP
+                [xhat_DFT, SetEst_DFT] = OMP_nzknown(y, A_DFT, K);
+                
+                % MD, FA, AER
+                [pmdDFTreals(sn, iter), pfaDFTreals(sn, iter), ~] = Compute_MDandFA(SetActiveUEs, SetEst_DFT, N, K);
+
+                % MMSE
+                nmseDFTreals(sn, iter) = ChannelEstimation_MMSE(A_DFT, y, h, xhat_DFT, SetEst_DFT, Noivar(sn));
+
+            end
+
+            % QCSIDCO frame
+            if (frame_QCS)
+                % frame is pre-generated
+
+                % received signal
+                y = A_QCS * h + n;
+
+                % OMP
+                [xhat_QCS, SetEst_QCS] = OMP_nzknown(y, A_QCS, K);
+                
+                % MD, FA, AER
+                [pmdQCSreals(sn, iter), pfaQCSreals(sn, iter), ~] = Compute_MDandFA(SetActiveUEs, SetEst_QCS, N, K);
+
+                % MMSE
+                nmseQCSreals(sn, iter) = ChannelEstimation_MMSE(A_QCS, y, h, xhat_QCS, SetEst_QCS, Noivar(sn));
+            end
+ 
         end
     end
     
@@ -156,11 +155,12 @@ if (flag_SMV)
     nmseDFT = (mean(nmseDFTreals, 2));
     nmseQCS = (mean(nmseQCSreals, 2));
     % SNR
-    SNR_real = 10*log10(mean(SNR_iter, 2))
+    SNRtrue = 10*log10(mean(SNRreals, 2));
+
     
     %% plot
-    % false alarm
-    if (plot_FA)
+    % false alarm and miss detection
+    if (plot_MDFA)
     f1 = figure(1);
     % f1.Position(3:4) = [900 450]; % for draft
     f1.Position(3:4) = [560 420]; % for slide
@@ -172,62 +172,44 @@ if (flag_SMV)
     ylabel("Probability", "Fontsize", 15, "Fontname", "Times New Roman");
     title('False Alarm and Miss Detection', 'Interpreter', 'Latex', 'Fontsize', 14);
 
-    pfa_grf = semilogy(SNR, pfaGRF, 'k--x', 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'k');
+    
+    pmd_grf = semilogy(SNR, pmdGRF, 'k--s', 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'k');
     hold on
-%     pfa_dft = semilogy(SNR, pfaDFT, 'b-.^', 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'b');
+    pmd_dft = semilogy(SNR, pmdDFT, 'b-.^', 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'b');
+%     pmd_qcs = semilogy(SNR, pmdQCS, 'r-o' , 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'r');
+
+    pfa_grf = semilogy(SNR, pfaGRF, 'k--s', 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'k');
+    pfa_dft = semilogy(SNR, pfaDFT, 'b-.^', 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'b');
 %     pfa_qcs = semilogy(SNR, pfaQCS, 'r-o' , 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'r');
     
-    pmd_grf = semilogy(SNR, pmdGRF, 'k--x', 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'k');
-    
-    ylim([1e-3 1])
+
+    ylim([1e-3 1e-0])
     grid on
     box on
-%     legend([pfa_grf, pmd_grf], {'Gaussian (FA)', 'Gaussian (MD)'}, 'Interpreter', 'Latex', 'Location', 'NorthEast', 'Fontsize', 15);
+    legend([pmd_grf, pmd_dft, pfa_grf, pfa_dft], {'Gaussian (MD)', 'Partial DFT (MD)', 'Gaussian (FA)','Partial DFT (FA)'}, 'Interpreter', 'Latex', 'Location', 'southwest', 'Fontsize', 15);
 
     end
 
-    % miss detection
-    if (plot_MD)
-%     f2 = figure(2);
-%     % f2.Position(3:4) = [900 450]; % for draft
-%     f2.Position(3:4) = [560 420]; % for slide
-%     % f2.Position(3:4) = [600 350]; % for thesis
-% %     hold on
-%     grid on
-%     box on
-% %     ylim([1e-3 1])
-%     pmd_grf = semilogy(SNR, pmdGRF, 'k--x', 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'k');
-% %     pmd_dft = semilogy(SNR, pmdDFT, 'b-.^', 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'b');
-% %     pmd_qcs = semilogy(SNR, pmdQCS, 'r-o' , 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'r');
-% 
-%     xlabel("SNR [dB]" , "Fontsize", 15, "Fontname", "Times New Roman");
-%     ylabel("Probability", "Fontsize", 15, "Fontname", "Times New Roman");
-%     title('Miss Detection', 'Interpreter', 'Latex', 'Fontsize', 14);
-% 
-% %     legend([pmd_grf, pmd_dft, pmd_qcs], {'Gaussian', 'DFT', 'QCSIDCO'}, 'Interpreter', 'Latex', 'Location', 'NorthEast', 'Fontsize', 15);
-    
-    end
 
     % NMSE
     if (plot_NMSE)
-    f3 = figure(2);
+    f2 = figure(2);
     % f2.Position(3:4) = [900 450]; % for draft
-    f3.Position(3:4) = [560 420]; % for slide
+    f2.Position(3:4) = [560 420]; % for slide
     % f2.Position(3:4) = [600 350]; % for thesis
-%     hold on
-%     ylim([1e-3 1])
+
     pnm_grf = semilogy(SNR, nmseGRF, 'k--x', 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'k');
     hold on
-%     pnm_dft = plot(SNR, nmseDFT, 'b-.^', 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'b');
+    pnm_dft = plot(SNR, nmseDFT, 'b-.^', 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'b');
 %     pnm_qcs = plot(SNR, nmseQCS, 'r-o' , 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'r');
 
     xlabel("SNR [dB]" , "Fontsize", 15, "Fontname", "Times New Roman");
     ylabel("NMSE", "Fontsize", 15, "Fontname", "Times New Roman");
     title('NMSE', 'Interpreter', 'Latex', 'Fontsize', 14);
-    ylim([1e-3 1.5])
+    ylim([1e-3 1e0])
     grid on
     box on
-%     legend([pnm_grf, pnm_dft, pnm_qcs], {'Gaussian', 'DFT', 'QCSIDCO'}, 'Interpreter', 'Latex', 'Location', 'NorthEast', 'Fontsize', 15);
+    legend([pnm_grf, pnm_dft], {'Gaussian', 'Partial DFT'}, 'Interpreter', 'Latex', 'Location', 'southwest', 'Fontsize', 15);
 
     end
 end
