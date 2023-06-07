@@ -1,40 +1,51 @@
-function [xhat, SetEst] = OMP_nzknown(y, A, K)
+function [Xhat, SetEst] = OMP_nzknown(Y, A, K)
 % OMP algorithm (Case: num. non-zero elements is known at the receiver)
 % min. ||y - A\hat{x}||_0, s.t. y = Ax + n, ||x||_0 = K 
 % input
-% y      : received signal
+% Y      : received signal (matrix)
 % A      : mesurement matrix
 % K      : num. non-zero elements 
 % output
-% xhat   : reconstructed sparse vector
+% xhat   : reconstructed sparse vectors
 % SetEst : indeces set of reconstructed sparse vector
 
 
 % initialize
-xhat   = zeros(size(A, 2), 1); %reconstructed vector (sparse)   
-r      = zeros(size(y));    %residual
-SetEst = int16.empty;       %index set of estimated active UEs
-A_hat  = double.empty;      %selected support
+J      = size(Y, 2);
+Xhat   = zeros(size(A, 2), J); %reconstructed vectors (sparse) of all antennas
+SetEst = int16.empty;          %index set of estimated active UEs of all antennas
 
 % main loop
-for s = 1 : K
-    % residual update
-    r = y - A * xhat;
+for j = 1 : J
+    % initialize
+    xhat_j   = zeros(size(A, 2), 1); %reconstructed vector (sparse) of the j-th antenna  
+    SetEst_j = int16.empty;          %index set of estimated active UEs of the j-th antenna
+    A_hat  = double.empty;           %selected support
+    y = Y(:, j);                     %recived signal
 
-    % select the maximum correlated index
-    [~, p] = max(abs(A' * r));
+    for k = 1 : K
+        % residual update
+        r = y - A * xhat_j;
     
-    % add index to the index set
-    SetEst(s) = p;
+        % select the maximum correlated index
+        [~, p] = max(abs(A' * r));
+        
+        % add index to the index set
+        SetEst_j(k) = p;
+        
     
-
-    % derive the least square solution
-    A_hat(:, s) = A(:, SetEst(s));
-    xtilde  = pinv(A_hat) * y;
-
-    % sparse reconstruction
-    xhat(SetEst) = xtilde;
-
+        % derive the least square solution
+        A_hat(:, k) = A(:, SetEst_j(k));
+        xtilde  = pinv(A_hat) * y;
+    
+        % sparse reconstruction
+        xhat_j(SetEst_j) = xtilde;
+    
+    end
+    % data storing
+    SetEst(:, j) = SetEst_j;
+    Xhat  (:, j) = xhat_j;
+    
 end
 
 end

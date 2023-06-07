@@ -1,17 +1,24 @@
-function NMSE = ChannelEstimation_MMSE(A, y, h, xhat, SetEst, nvar)
+function NMSE = ChannelEstimation_MMSE(A, Y, H, Xhat, SetEst, nvar)
 % Channel estimation method with MMSE for grant free access
 % After the channel estimation, calculate the NMSE
 
 % initialize
 M = size(A, 1);
-Aest = A(:, SetEst);
+J = size(Y, 2);
 
-% MMSE
-xmmse = Aest' * inv(Aest * Aest' + nvar * eye(M)) * y;
+for j = 1 : J
+    % initialize
+    Aest = A(:, SetEst(:, j));
+    y    = Y(:, j);
+    
+    % MMSE
+    xmmse = Aest' * inv(Aest * Aest' + nvar * eye(M)) * y;
+    
+    % sparse vector reconstruction
+    Xhat(SetEst(:, j), j) = xmmse;
 
-% sparse vector reconstruction
-xhat(SetEst) = xmmse;
+end
 
 % NMSE calculation
-NMSE = norm(h - xhat, 'fro')^2 / norm(h, 'fro')^2;
+NMSE = norm(H - Xhat, 'fro')^2 / norm(H, 'fro')^2;
 end
