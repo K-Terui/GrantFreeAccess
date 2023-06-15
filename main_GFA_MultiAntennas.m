@@ -3,6 +3,20 @@
 % with OMP method
 % SMV considers that base station (BS) has single antenna
 % MMV considers that BS has multiple antennas
+% 
+% Demodulation method
+% MMV-OMP considers the correlation between antenna space
+% P-OMP doesn't consider the antenna space correlation
+% MMV-OMP : Multi measurement vector orthogonal matching pursuit 
+% P-OMP : Parallel OMP
+%
+% Reference
+% Koji Ishibashi, "Grant Free Access Tutorial" (AWCC, UEC, Tokyo)
+% https://drive.google.com/file/d/1A6Lmjf9jeeezoLP-an7Ho8HCwvXO1w_b/view
+% https://drive.google.com/file/d/1R3cEsMbI0DHSYIXKjrn-refiPEfhFbkA/view
+%
+% Edited by Kanta Terui, 15/Jun./2023 (AWCC, UEC, Tokyo)
+%
 
 % clear all; close all; clc;
 clear
@@ -13,31 +27,31 @@ flag_SMV = 1; %single measurement vector
 flag_MMV = 1; %multi measurement vector
 
 %% frame
-frame_GRF = 0; %gaussian random frame
+frame_GRF = 1; %gaussian random frame
 frame_DFT = 1; %partial DFT frame
-frame_QCS = 0; %QCSIDCO frame
+frame_QCS = 1; %QCSIDCO frame
 
 %% plot
-plot_conv = 0; %plot the performance about convergence of QCSIDCO algorithm
-plot_MDFA = 1; %plot the performance about miss detection and false alarm vs. SNR
-plot_NMSE = 1; %plot the performance about channel estimation error (NMSE) vs. SNR
-plot_spar = 0; %plot the performance about sparsity
+plot_conv = 1; %plot the convergence of QCSIDCO algorithm
+plot_MDFA = 1; %plot the miss detection and false alarm vs. SNR
+plot_NMSE = 1; %plot the channel estimation error (NMSE) vs. SNR
+plot_spar = 1; %plot the performance of sparsity
 
 %% setup
 % parameters
 N = 200; %num. UEs
 M = 55;  %len. spread sequence
 K = 20;  %num. active UEs
-J = 16;   %num. antennas of BS
+J = 16;  %num. antennas of BS
 beta  = 1;   %pathloss or shadowing components
 SetUE = 1:N; %set of UEs
 
 iter_sidco = 1e3; %num. of iterations for QCSIDCO algorithm (e.g. 1e3)
 
-reals = 1e2; %num. channel realization (e.g. 1e6)
+reals = 1e1; %num. channel realization (e.g. 1e6)
 
 % variable
-SNR = -10: 4 :10; %SNR[dB]
+SNR = -10: 2 :10; %SNR[dB]
 % SNR =0;
 Noivar = 10.^(-SNR./10) / M; %noise variance (linear value)
 
@@ -57,10 +71,10 @@ if (frame_QCS)
         clear row column MM NN
     else
         addpath('QCSIDCO')
-        %---pbsでcvxを動かすために必要-------
+        %---for using cvx on the parallel server-------
         addpath('/app/MATLAB/cvx');
         cvx_setup;
-        %----以上----
+        %--------
         % generate measurement matrix (M * N)
         % avgmc : column vector of average coherence
         % minmc : column vector of minimum coherence
@@ -69,7 +83,7 @@ if (frame_QCS)
         [A_QCS, ~, avgmcQCS, minmcQCS, maxmcQCS, stdmcQCS] = generate_qcsidco_frames(iter_sidco, M, N);
         [row, column] = size(A_QCS);
         save('QCSIDCO.mat', 'A_QCS', 'avgmcQCS', 'minmcQCS', 'maxmcQCS', 'stdmcQCS', 'row', 'column', 'iter_sidco')
-        clear row column 
+        clear row column
     end
 end
 
@@ -123,7 +137,7 @@ for sn = 1:length(SNR)
         n = sqrt(0.50 * nvar) * (randn(M, J) + 1j * randn(M, J));
         
         % SNR
-        SNRreals(sn, iter) = norm(h, 'fro')^2 / norm(n, 'fro')^2 / K; %各アクティブユーザごとのSNRに対する平均値
+        SNRreals(sn, iter) = norm(h, 'fro')^2 / norm(n, 'fro')^2 / K; %average SNR of active UEs
 
         % AUD and CE by each frame
         % gaussian random frame
@@ -357,7 +371,7 @@ f2 = figure(2);
     pmd_dftmmv.MarkerFaceColor = genRGBForPlot(4);
     pfa_dftmmv.Color = genRGBForPlot(4);
 
-    ylim([1e-3 1e-0])
+    ylim([1e-5 1e-0])
     grid on
     box on
     xlabel("SNR [dB]" , "Fontsize", 15, "Fontname", "Times New Roman");
@@ -387,6 +401,7 @@ if (plot_NMSE)
 %     pnm_qcsmmv = semilogy(SNR, nmseQCSmmv, 'r-o' , 'LineWidth', 2, 'MarkerSize', 10, 'MarkerFaceColor', 'w');
 
     pnm_dftmmv.Color = genRGBForPlot(4);
+    pnm_dftmmv.MarkerFaceColor = genRGBForPlot(4);
     
 
     xlabel("SNR [dB]" , "Fontsize", 15, "Fontname", "Times New Roman");
@@ -402,27 +417,20 @@ end
 
 % sparsity
 if (plot_spar)
-%     f4 = figure(4);
-%     t = tiledlayout(1, 3);
-%     
-%     % true channel
-%     p_h = nexttile;
-%     spy(h);
-%     p_h.FontSize = 12;
-%     
-%     % P-OMP
-%     p_par = nexttile;
-%     spy(xhat_DFT);
-%     p_par.FontSize = 12;
-%     
-%     % MMV-OMP
-%     p_mmv = nexttile;
-%     spy(xhat_DFTmmv);
-%     p_mmv.FontSize = 12;
-    
-    figure(4);spy(h);
-    figure(5);spy(xhat_DFT);
-    figure(6);spy(xhat_DFTmmv);
+    f4 = figure(4);
+    tiledlayout(1, 3)
+    % tile 1
+    nexttile
+    spy(h);
+    title('Original')
+    % tile 2
+    nexttile
+    spy(xhat_DFT);
+    title('Reconst. w/ P-OMP')
+    % tile 3
+    nexttile
+    spy(xhat_DFTmmv);
+    title('Reconst. w/ MMV-OMP')
 
 end
 
